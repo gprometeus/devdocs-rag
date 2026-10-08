@@ -1,0 +1,44 @@
+spring:
+  application:
+    name: devdocs-rag
+
+  threads:
+    virtual:
+      enabled: true   # вызовы LLM — долгий блокирующий I/O, идеальный кейс для виртуальных потоков
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/rag
+    username: rag
+    password: rag
+
+  ai:
+    model:
+      chat: ollama          # на этапе 3 переключим на облачного провайдера
+      embedding: ollama
+    ollama:
+      # Ollama нативно на Windows: из IntelliJ на Windows — localhost.
+      # Если приложение будет в контейнере — http://host.docker.internal:11434
+      base-url: http://localhost:11434
+      init:
+        pull-model-strategy: never   # модели тянем вручную, старт приложения не должен качать гигабайты
+      chat:
+        model: qwen3:4b
+        temperature: 0.2
+        num-ctx: 8192               # дефолт 2048 — слишком мало для RAG; больше 8k на 6 ГБ VRAM не берём
+        think: false                # для RAG-ответов reasoning-трейс не нужен — экономим токены и время
+        keep_alive: 30m
+      embedding:
+        model: bge-m3
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    org.springframework.ai: INFO
