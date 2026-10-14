@@ -19,14 +19,12 @@ public class SmokeController {
         this.embeddingModel = embeddingModel;
     }
 
-    // Проверка чат-модели: задаём вопрос, получаем текст
     @GetMapping("/chat")
     public Map<String, String> chat(@RequestParam String q) {
         String answer = chatClient.prompt().user(q).call().content();
         return Map.of("answer", answer);
     }
 
-    // Проверка модели эмбеддингов: текст -> массив чисел
     @GetMapping("/embed")
     public Map<String, Object> embed(@RequestParam String text) {
         float[] vector = embeddingModel.embed(text);

@@ -30,7 +30,7 @@ public class SimilarityProbe implements CommandLineRunner {
                 "Spring HTTP client timeout setting");
         List<float[]> vectors = embeddingModel.embed(phrases);
 
-        // Нормы считаем один раз на вектор, а не заново в каждом вызове cosine()
+        // Compute each norm once instead of on every cosine() call
         double[] norms = new double[vectors.size()];
         for (int i = 0; i < vectors.size(); i++) {
             norms[i] = norm(vectors.get(i));

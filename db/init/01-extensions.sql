@@ -1,4 +1,3 @@
--- Выполняется один раз при первой инициализации тома pgdata.
--- Схему таблиц НЕ создаём здесь — она будет в Flyway-миграциях (шаг 2),
--- чтобы версия схемы жила вместе с кодом приложения.
+-- Runs only once, when the pgdata volume is initialized for the first time.
+-- Tables are created by Flyway migrations so the schema is versioned with the application code.
 CREATE EXTENSION IF NOT EXISTS vector;
