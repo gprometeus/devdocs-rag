@@ -1,0 +1,9 @@
+# Одноразовый запуск экспорта issues: без веб-сервера, БД и Flyway,
+# чтобы для выгрузки снимка не нужен был поднятый Postgres.
+spring:
+  main:
+    web-application-type: none
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
+      - org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration

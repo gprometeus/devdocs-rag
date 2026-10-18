@@ -41,3 +41,7 @@ management:
 logging:
   level:
     org.springframework.ai: INFO
+
+devdocs:
+  github:
+    token: ${GITHUB_TOKEN:}   # never hardcode: read from the environment only
