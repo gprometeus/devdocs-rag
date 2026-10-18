@@ -16,7 +16,7 @@ public record GitHubProperties(
         return token != null && !token.isBlank();
     }
 
-    /** Сгенерированный toString() записи вывел бы токен в лог при любом log.info("{}", props). */
+    /** Masks the token, which the generated record toString() would otherwise leak into logs. */
     @Override
     public String toString() {
         return "GitHubProperties[owner=" + owner + ", repo=" + repo

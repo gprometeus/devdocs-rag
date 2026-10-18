@@ -1,3 +1,11 @@
-/gradlew text eol=lf
+# Normalize all text files to LF in the repository and the working tree
+* text=auto eol=lf
+
+# Windows scripts must keep CRLF
 *.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files are never converted
 *.jar binary
+*.png binary
+*.jpg binary

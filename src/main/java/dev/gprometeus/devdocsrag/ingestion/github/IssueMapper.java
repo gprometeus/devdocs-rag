@@ -6,7 +6,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Чистые функции над JSON из GitHub API: фильтрация и маппинг в записи снимка. Без сети. */
+/** Pure functions that filter GitHub API JSON and map it to snapshot records. */
 final class IssueMapper {
 
     enum Verdict { PULL_REQUEST, NOT_COMPLETED, ACCEPTED }
@@ -15,7 +15,7 @@ final class IssueMapper {
     }
 
     static Verdict classify(JsonNode item) {
-        // /issues возвращает и PR тоже; у PR есть ключ pull_request
+        // The /issues endpoint also returns pull requests, which carry a pull_request key
         if (item.has("pull_request")) {
             return Verdict.PULL_REQUEST;
         }
@@ -40,7 +40,7 @@ final class IssueMapper {
     }
 
     static IssueComment toComment(JsonNode comment) {
-        JsonNode user = comment.path("user");   // null у удалённых аккаунтов
+        JsonNode user = comment.path("user");   // null for deleted accounts
         return new IssueComment(
                 text(user, "login"),
                 text(user, "type"),
@@ -52,7 +52,7 @@ final class IssueMapper {
     private static List<String> labels(JsonNode labels) {
         List<String> result = new ArrayList<>();
         for (JsonNode label : labels) {
-            // API отдаёт объекты {name: ...}, но формально допускает и строки
+            // The API returns {name: ...} objects but also allows plain strings
             String name = label.isString() ? label.stringValue() : text(label, "name");
             if (name != null) {
                 result.add(name);
@@ -61,7 +61,7 @@ final class IssueMapper {
         return result;
     }
 
-    /** null для отсутствующего поля, JSON null и не-строк, вместо исключения или строки "null". */
+    /** Returns null for missing fields, JSON null and non-string values rather than the string "null". */
     private static String text(JsonNode node, String field) {
         JsonNode value = node.path(field);
         return value.isString() ? value.stringValue() : null;

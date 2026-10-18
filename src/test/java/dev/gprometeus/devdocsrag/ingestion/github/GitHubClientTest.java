@@ -26,7 +26,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
-/** Логика лимитов и повторов: время зафиксировано, паузы только записываются, сеть подменена. */
+/** Rate-limit and retry logic with a fixed clock, recorded sleeps and a mocked server. */
 class GitHubClientTest {
 
     private static final String URL = "https://api.github.com/items";
@@ -39,7 +39,7 @@ class GitHubClientTest {
     @BeforeEach
     void setUp() {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.com");
-        // bindTo подменяет request factory билдера, поэтому build() вызываем после него
+        // bindTo replaces the builder's request factory, so build() must be called afterwards
         server = MockRestServiceServer.bindTo(builder).build();
         client = new GitHubClient(builder.build(), JsonMapper.builder().build(),
                 Clock.fixed(NOW, ZoneOffset.UTC), sleeps::add);
@@ -69,7 +69,7 @@ class GitHubClientTest {
 
         assertThat(client.getArray("/items")).isEmpty();
 
-        // 60 s до reset + 5 s запаса (RESET_MARGIN)
+        // 60 s until reset + 5 s RESET_MARGIN
         assertThat(sleeps).containsExactly(Duration.ofSeconds(65));
     }
 
@@ -105,7 +105,6 @@ class GitHubClientTest {
 
     @Test
     void retriesNetworkErrorsThenRethrowsOriginalException() {
-        // IOException из транспорта RestClient оборачивает в ResourceAccessException
         server.expect(times(4), requestTo(URL))
                 .andRespond(withException(new SocketTimeoutException("read timed out")));
 

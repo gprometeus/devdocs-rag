@@ -1,5 +1,5 @@
-# Одноразовый запуск экспорта issues: без веб-сервера, БД и Flyway,
-# чтобы для выгрузки снимка не нужен был поднятый Postgres.
+# One-shot issue export: no web server, datasource or Flyway,
+# so taking a snapshot does not require a running Postgres.
 spring:
   main:
     web-application-type: none

@@ -3,11 +3,11 @@ package dev.gprometeus.devdocsrag.ingestion.github;
 import java.time.Instant;
 import java.util.List;
 
-/** Закрытая issue в JSONL-снимке: одна запись = одна строка файла. */
+/** Closed issue in a JSONL snapshot; each record is serialized as one line. */
 public record IssueSnapshot(
         int number,
         String title,
-        String body,            // null, если у issue нет описания
+        String body,            // null if the issue has no description
         String htmlUrl,
         String stateReason,
         List<String> labels,

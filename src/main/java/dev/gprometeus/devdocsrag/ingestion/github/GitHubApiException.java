@@ -1,6 +1,6 @@
 package dev.gprometeus.devdocsrag.ingestion.github;
 
-/** Ответ GitHub API, который не удалось обработать даже после ожиданий и повторов. */
+/** GitHub API error response that persisted after rate-limit waits and retries. */
 public class GitHubApiException extends RuntimeException {
 
     private final int status;

@@ -1,6 +1,6 @@
 package dev.gprometeus.devdocsrag.ingestion;
 
-/** Тип источника. Совпадает с CHECK в таблице document. */
+/** Document source type. Must match the CHECK constraint on {@code document.source_type}. */
 public enum SourceType {
     DOC,
     ISSUE

@@ -3,17 +3,16 @@ package dev.gprometeus.devdocsrag.ingestion;
 import java.util.Objects;
 
 /**
- * Документ из любого источника, приведённый к общему виду.
- * Контракт между загрузкой (шаг 2.2) и нарезкой (шаг 2.3).
- * Поля соответствуют колонкам таблицы document.
+ * Source-agnostic document produced by loaders and consumed by the chunker.
+ * Fields map to the columns of the {@code document} table.
  */
 public record SourceDocument(
         SourceType sourceType,
-        String sourceId,    // путь .adoc-файла или номер issue
-        String sourceUrl,   // ссылка для цитаты в ответе
+        String sourceId,    // .adoc file path or issue number
+        String sourceUrl,   // link used to cite the source in answers
         String title,
-        String sourceRef,   // git-тег или дата снимка
-        String text         // очищенный текст: именно он хэшируется и режется
+        String sourceRef,   // git tag or snapshot date
+        String text         // cleaned text; this is what gets hashed and chunked
 ) {
     public SourceDocument {
         Objects.requireNonNull(sourceType, "sourceType");

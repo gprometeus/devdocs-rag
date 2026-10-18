@@ -30,8 +30,9 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * Выгружает закрытые (state_reason=completed) issues репозитория в JSONL-снимок и завершает приложение.
- * Запуск: GITHUB_TOKEN=... ./gradlew bootRun --args='--spring.profiles.active=export-issues'
+ * Exports completed issues of a repository to a JSONL snapshot, then exits the application.
+ * <p>
+ * Usage: {@code GITHUB_TOKEN=... ./gradlew bootRun --args='--spring.profiles.active=export-issues'}
  */
 @Component
 @Profile("export-issues")
@@ -62,8 +63,8 @@ public class GitHubIssueExporter implements CommandLineRunner {
         this.context = context;
         this.client = new GitHubClient(
                 GitHubClient.createRestClient(properties.token()), jsonMapper, clock, Thread::sleep);
-        // JSONL требует ровно одну строку на запись, поэтому отступы выключаем явно,
-        // даже если кто-то включит spring.jackson.serialization.indent-output глобально
+        // JSONL requires exactly one line per record, so indentation is disabled explicitly
+        // regardless of the global spring.jackson.serialization.indent-output setting
         this.lineWriter = jsonMapper.writer()
                 .without(SerializationFeature.INDENT_OUTPUT)
                 .without(DateTimeFeature.WRITE_DATES_AS_TIMESTAMPS);
@@ -72,8 +73,8 @@ public class GitHubIssueExporter implements CommandLineRunner {
     @Override
     public void run(String... args) throws IOException {
         export();
-        // Профиль одноразовый: закрываем контекст и выходим с кодом 0.
-        // При исключении сюда не дойдём: Spring Boot сам закроет контекст, процесс завершится с ошибкой
+        // One-shot profile: shut down instead of keeping the context alive.
+        // On failure Spring Boot closes the context and exits with a non-zero code.
         System.exit(SpringApplication.exit(context));
     }
 
@@ -100,12 +101,11 @@ public class GitHubIssueExporter implements CommandLineRunner {
                     case ACCEPTED -> snapshots.add(IssueMapper.toSnapshot(item, fetchComments(owner, repo, item)));
                 }
             }
-            // Страница = PAGE_SIZE элементов, так что это и есть лог «каждые 100 issues»
             log.info("Progress: {} items received, {} issues accepted, {} requests",
                     received, snapshots.size(), client.requestCount());
         }
 
-        // sort=created почти совпадает с порядком номеров, но не гарантирует его (например, перенесённые issues)
+        // sort=created does not guarantee number order (e.g. transferred issues)
         snapshots.sort(Comparator.comparingInt(IssueSnapshot::number));
         Path target = write(snapshots, repo);
 
@@ -124,7 +124,7 @@ public class GitHubIssueExporter implements CommandLineRunner {
             for (JsonNode item : items) {
                 comments.add(IssueMapper.toComment(item));
             }
-            // Неполная страница — последняя; лишний запрос за пустой страницей не делаем
+            // A partial page is the last one; skip the request for an empty page
             if (items.size() < PAGE_SIZE) {
                 return comments;
             }
@@ -132,8 +132,8 @@ public class GitHubIssueExporter implements CommandLineRunner {
     }
 
     /**
-     * Пишет во временный файл в той же папке и атомарно переименовывает.
-     * Та же папка важна: ATOMIC_MOVE между разными файловыми системами невозможен.
+     * Writes to a temp file and atomically renames it to the target.
+     * The temp file lives in the target directory because ATOMIC_MOVE cannot cross file systems.
      */
     private Path write(List<IssueSnapshot> snapshots, String repo) throws IOException {
         Path dir = properties.snapshotDir();
@@ -149,7 +149,7 @@ public class GitHubIssueExporter implements CommandLineRunner {
                     writer.write('\n');
                 }
                 writer.flush();
-                // Данные на диске до rename: иначе после сбоя питания можно получить целый, но пустой файл
+                // Flush to disk before the rename so a crash cannot leave an empty file under the final name
                 channel.force(true);
             }
             Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE);

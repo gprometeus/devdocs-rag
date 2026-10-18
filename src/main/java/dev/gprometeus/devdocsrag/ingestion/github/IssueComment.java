@@ -3,9 +3,9 @@ package dev.gprometeus.devdocsrag.ingestion.github;
 import java.time.Instant;
 
 /**
- * Комментарий к issue в снимке.
+ * Issue comment in a snapshot.
  *
- * @param authorType        user.type: "User" или "Bot"
+ * @param authorType        user.type: "User" or "Bot"
  * @param authorAssociation author_association: OWNER, MEMBER, CONTRIBUTOR, NONE...
  */
 public record IssueComment(

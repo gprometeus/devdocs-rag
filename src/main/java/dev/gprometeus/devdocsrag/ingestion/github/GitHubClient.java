@@ -19,8 +19,8 @@ import java.time.Instant;
 import java.util.Optional;
 
 /**
- * GET-запросы к GitHub REST API с учётом rate limit и повторами на 5xx.
- * Не thread-safe: экспорт идёт последовательно, страница за страницей.
+ * GitHub REST API client for GET requests that honors rate limits and retries transient failures.
+ * Not thread-safe.
  */
 final class GitHubClient {
 
@@ -75,7 +75,12 @@ final class GitHubClient {
         return requestCount;
     }
 
-    /** GET, ожидающий JSON-массив. Сам ждёт при исчерпании лимита и повторяет запрос на 5xx. */
+    /**
+     * Fetches a JSON array, waiting out rate limits and retrying 5xx responses and network errors.
+     *
+     * @throws GitHubApiException      if the response is still unsuccessful after waits and retries
+     * @throws ResourceAccessException if network errors persist after retries
+     */
     JsonNode getArray(String uriTemplate, Object... uriVariables) {
         String uri = UriComponentsBuilder.fromUriString(uriTemplate).buildAndExpand(uriVariables).toUriString();
         int serverRetries = 0;
@@ -85,7 +90,7 @@ final class GitHubClient {
             try {
                 response = execute(uriTemplate, uriVariables);
             } catch (ResourceAccessException e) {
-                // Сетевой сбой (таймаут, обрыв соединения) лечится так же, как 5xx: повтором с паузой
+                // Network failures (timeouts, dropped connections) are retried like 5xx responses
                 if (serverRetries >= MAX_SERVER_RETRIES) {
                     throw e;
                 }
@@ -117,7 +122,7 @@ final class GitHubClient {
 
     private Response execute(String uriTemplate, Object... uriVariables) {
         requestCount++;
-        // exchange() вместо retrieve(): не бросает исключение на 4xx/5xx и даёт заголовки любого ответа
+        // exchange() instead of retrieve(): exposes status and headers of error responses without throwing
         return restClient.get()
                 .uri(uriTemplate, uriVariables)
                 .exchange((request, response) -> new Response(
@@ -134,7 +139,7 @@ final class GitHubClient {
         return node;
     }
 
-    /** Превентивно ждём сброса окна, пока лимит не кончился совсем и GitHub не начал отвечать 403. */
+    /** Sleeps until the rate-limit window resets once the remaining quota runs low, avoiding 403s. */
     private void throttleIfNearLimit(HttpHeaders headers) {
         Long remaining = longHeader(headers, "x-ratelimit-remaining");
         Long reset = longHeader(headers, "x-ratelimit-reset");
@@ -147,8 +152,8 @@ final class GitHubClient {
     }
 
     /**
-     * Сколько ждать на 403/429. Пусто — это не лимит, а настоящая ошибка доступа:
-     * ждать до reset бессмысленно, лучше упасть сразу.
+     * Returns how long to wait before retrying a 403/429 response, or empty if the response
+     * is not rate-limit related (e.g. insufficient permissions) and must fail immediately.
      */
     private Optional<Duration> rateLimitWait(int status, HttpHeaders headers) {
         Long retryAfter = longHeader(headers, HttpHeaders.RETRY_AFTER);
@@ -193,7 +198,7 @@ final class GitHubClient {
         try {
             return Long.parseLong(value.trim());
         } catch (NumberFormatException e) {
-            return null;   // например, Retry-After в формате HTTP-date; GitHub так не делает
+            return null;   // e.g. Retry-After as HTTP-date, which GitHub does not send
         }
     }
 
