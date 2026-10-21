@@ -45,3 +45,12 @@ logging:
 devdocs:
   github:
     token: ${GITHUB_TOKEN:}   # never hardcode: read from the environment only
+  # Required in every profile: IssueProperties is validated on startup.
+  # Do not move this block to a profile-specific application-*.yml.
+  issues:
+    snapshot-file: data/snapshots/spring-ai-issues-2026-10-17.jsonl
+    created-after: 2025-05-20
+    excluded-labels:
+      - "type: backport"
+      - "dependency-upgrade"
+      - "code cleanup"
