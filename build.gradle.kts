@@ -49,4 +49,11 @@ dependencyManagement {
 
 tasks.withType<Test> {
 	useJUnitPlatform()
+	testLogging {
+		// CI=true is set by GitHub Actions, GitLab CI and most other CI servers; there passed tests would flood the log
+		val ci = System.getenv("CI") != null
+		if (ci) events("skipped", "failed") else events("passed", "skipped", "failed")
+		// Full assertion message with the expected/actual diff, not just the first line
+		exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+	}
 }
