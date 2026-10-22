@@ -63,6 +63,67 @@ class IssueTextBuilderTest {
     }
 
     @Test
+    void removesPlainTextTemplatePromptsButKeepsHeadersAndAuthorText() {
+        IssueSnapshot issue = issue("""
+                Please do a quick search on GitHub issues first, there might be already a duplicate issue for the one you are about to create.
+                If the bug is trivial, just go ahead and create the issue. Otherwise, please take a few moments and fill in the following sections:
+
+                **Bug description**
+                A clear and concise description of what the bug is about.
+                Two system messages are sent
+
+                **Steps to reproduce**
+                  Steps to reproduce the issue.\t
+                1. Augment the system message
+                """, List.of());
+
+        assertThat(builder.build(issue).orElseThrow()).isEqualTo("""
+                Issue #3511: MCP Server starter selection is confusing
+                Closed: 2025-08-12
+
+                **Bug description**
+                Two system messages are sent
+
+                **Steps to reproduce**
+                1. Augment the system message""");
+    }
+
+    @Test
+    void keepsLineThatOnlyStartsLikeTemplatePrompt() {
+        IssueSnapshot issue = issue("A clear and concise description of what the bug is about: NPE on startup", List.of());
+
+        assertThat(builder.build(issue).orElseThrow())
+                .endsWith("\n\nA clear and concise description of what the bug is about: NPE on startup");
+    }
+
+    @Test
+    void replacesMarkdownAndHtmlImagesWithMarker() {
+        IssueSnapshot issue = issue("""
+                I get this error:
+                ![Image](https://github.com/user-attachments/assets/ca13550e-42c3-4e3b-8823-20c440aea9dd)
+                Logs: <img width="790" height="101" alt="Image" src="https://github.com/user-attachments/assets/1" /> see above
+                <IMG
+                  alt="Image" src="https://github.com/user-attachments/assets/2">
+                """, List.of());
+
+        assertThat(builder.build(issue).orElseThrow()).endsWith("""
+
+
+                I get this error:
+                [image]
+                Logs: [image] see above
+                [image]""");
+    }
+
+    @Test
+    void keepsRegularLinksAndTagsThatOnlyStartWithImg() {
+        String body = "See [the docs](https://docs.spring.io/spring-ai) and List<Image> or <imgSource> in the API";
+        IssueSnapshot issue = issue(body, List.of());
+
+        assertThat(builder.build(issue).orElseThrow()).endsWith("\n\n" + body);
+    }
+
+    @Test
     void emptyWhenOnlyNoiseAndNoBody() {
         IssueSnapshot issue = issue(null, List.of(),
                 comment("NONE", "User", "+1", "2025-08-01T10:00:00Z"),
