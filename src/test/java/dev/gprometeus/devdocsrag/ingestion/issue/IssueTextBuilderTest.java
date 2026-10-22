@@ -111,6 +111,24 @@ class IssueTextBuilderTest {
     }
 
     @Test
+    void treatsCommentWithoutAssociationAsUser() {
+        IssueSnapshot issue = issue(null, List.of(),
+                comment(null, "User", "Same here, downgrading to 1.0.0 helped.", "2025-08-01T10:00:00Z"));
+
+        assertThat(builder.build(issue).orElseThrow()).endsWith("""
+                Comment (user):
+                Same here, downgrading to 1.0.0 helped.""");
+    }
+
+    @Test
+    void skipsShortCommentWithoutAssociation() {
+        IssueSnapshot issue = issue("Body", List.of(),
+                comment(null, "User", "+1", "2025-08-01T10:00:00Z"));
+
+        assertThat(builder.build(issue).orElseThrow()).doesNotContain("Comment");
+    }
+
+    @Test
     void removesEachHtmlCommentSeparately() {
         IssueSnapshot issue = issue("<!-- multi\nline -->Keep this<!-- second -->", List.of());
 

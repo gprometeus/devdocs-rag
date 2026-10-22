@@ -22,6 +22,8 @@ import java.util.stream.Collectors;
  * <p>
  * The output must be deterministic: it is hashed into {@code content_hash}, so any variation
  * between runs (time, ordering, locale) would trigger a re-index of every issue.
+ * Role labels follow author_association as of the snapshot, so a commenter's promotion
+ * legitimately re-indexes their issues.
  */
 @Component
 public class IssueTextBuilder {
@@ -99,6 +101,9 @@ public class IssueTextBuilder {
     }
 
     private static String role(String authorAssociation) {
+        if (authorAssociation == null) {
+            return "user";
+        }
         if (MAINTAINER_ASSOCIATIONS.contains(authorAssociation)) {
             return "maintainer";
         }
