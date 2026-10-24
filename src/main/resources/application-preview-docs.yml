@@ -1,6 +1,8 @@
-# One-shot docs preview: reads files only, so it must start without Postgres and without a web server
+# One-shot docs preview: reads the AsciiDoc files only, so no web server, datasource or Flyway.
 spring:
-  flyway:
-    enabled: false   # migrations connect to the database on startup
   main:
     web-application-type: none
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
+      - org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration
