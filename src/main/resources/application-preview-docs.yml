@@ -1,0 +1,6 @@
+# One-shot docs preview: reads files only, so it must start without Postgres and without a web server
+spring:
+  flyway:
+    enabled: false   # migrations connect to the database on startup
+  main:
+    web-application-type: none

@@ -54,3 +54,10 @@ devdocs:
       - "type: backport"
       - "dependency-upgrade"
       - "code cleanup"
+  docs:
+    # Antora module: pages/ become documents, partials/ are pulled in via include::
+    root: data/sources/spring-ai/spring-ai-docs/src/main/antora/modules/ROOT
+    # Citation link = base-url + page path under pages/ with .adoc -> .html; keep the trailing slash
+    base-url: https://docs.spring.io/spring-ai/reference/
+    # Git tag of the checked-out docs, stored in document.source_ref
+    source-ref: v2.0.1
