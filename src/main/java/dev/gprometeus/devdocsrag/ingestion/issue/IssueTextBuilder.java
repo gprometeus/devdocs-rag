@@ -1,5 +1,6 @@
 package dev.gprometeus.devdocsrag.ingestion.issue;
 
+import dev.gprometeus.devdocsrag.ingestion.MarkdownFences;
 import dev.gprometeus.devdocsrag.ingestion.github.IssueComment;
 import dev.gprometeus.devdocsrag.ingestion.github.IssueSnapshot;
 import org.springframework.stereotype.Component;
@@ -61,9 +62,8 @@ public class IssueTextBuilder {
     private static final String IMAGE_MARKER = "[image]";
     // Indentation is optional: pasted traces often lose it. "\S+\(" keeps prose lines from matching
     private static final Pattern STACK_FRAME = Pattern.compile("([ \\t]*)at \\S+\\(.*\\).*");
-    // Markdown allows up to three spaces of indentation before a quote marker or a code fence
+    // Markdown allows up to three spaces of indentation before a quote marker
     private static final Pattern QUOTE_LINE = Pattern.compile(" {0,3}>.*");
-    private static final Pattern CODE_FENCE = Pattern.compile(" {0,3}(?:```|~~~).*");
     private static final Pattern TRAILING_WHITESPACE = Pattern.compile("[ \\t]+$", Pattern.MULTILINE);
     private static final Pattern EXTRA_BLANK_LINES = Pattern.compile("\n{3,}");
 
@@ -173,14 +173,11 @@ public class IssueTextBuilder {
      */
     private static String removeQuotes(String text) {
         List<String> kept = new ArrayList<>();
-        boolean inCodeBlock = false;
-        for (String line : text.split("\n", -1)) {
-            if (CODE_FENCE.matcher(line).matches()) {
-                inCodeBlock = !inCodeBlock;
-            } else if (!inCodeBlock && QUOTE_LINE.matcher(line).matches()) {
+        for (MarkdownFences.Line line : MarkdownFences.scan(text)) {
+            if (line.kind() == MarkdownFences.Kind.TEXT && QUOTE_LINE.matcher(line.text()).matches()) {
                 continue;
             }
-            kept.add(line);
+            kept.add(line.text());
         }
         return String.join("\n", kept);
     }
