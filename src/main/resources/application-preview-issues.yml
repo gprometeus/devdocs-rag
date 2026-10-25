@@ -1,8 +1,0 @@
-# One-shot issue preview: reads the snapshot only, so no web server, datasource or Flyway.
-spring:
-  main:
-    web-application-type: none
-  autoconfigure:
-    exclude:
-      - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
-      - org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration

@@ -33,7 +33,7 @@ import java.util.stream.Collectors;
  * means the converter met a construct it does not know.
  * <p>
  * Usage: {@code ./gradlew bootRun --args='--spring.profiles.active=preview-docs'}
- * (no database needed, see application-preview-docs.yml)
+ * (no database needed, see application-oneshot.yml)
  */
 @Component
 @Profile("preview-docs")

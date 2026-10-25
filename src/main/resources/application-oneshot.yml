@@ -1,4 +1,5 @@
-# One-shot docs preview: reads the AsciiDoc files only, so no web server, datasource or Flyway.
+# Shared by the one-shot tools (export-issues, preview-issues, preview-docs), see spring.profiles.group
+# in application.yml. They run once and exit, and need neither a web server nor Postgres.
 spring:
   main:
     web-application-type: none

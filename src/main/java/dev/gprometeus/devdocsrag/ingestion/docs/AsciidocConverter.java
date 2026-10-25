@@ -5,6 +5,8 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
+import java.util.function.Function;
 import java.util.regex.MatchResult;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -37,14 +39,18 @@ public class AsciidocConverter {
     private static final Pattern HEADING_ANCHOR = Pattern.compile("\\s*(?:\\[\\[[^]]*]]|\\[#[^]]*])\\s*$");
     // Any block attribute line: [source,java], [cols="2,5"], [[anchor]], [#id], [tabs], [NOTE]
     private static final Pattern ATTRIBUTE_LINE = Pattern.compile("\\[.*]");
-    // The language is the first positional attribute after "source"; "[source, xml]" occurs too
-    private static final Pattern SOURCE_ATTRIBUTE = Pattern.compile("\\[source(?:,([^,\\]]*))?.*]");
+    // The language is the first positional attribute after "source"; "[source, xml]" occurs too.
+    // Possessive *+: the language never gives characters back to ".*" (which can match them anyway),
+    // so an unclosed "[source,..." fails in linear time instead of trying every split
+    private static final Pattern SOURCE_ATTRIBUTE = Pattern.compile("\\[source(?:,([^,\\]]*+))?.*]");
     private static final Pattern BLOCK_ADMONITION = Pattern.compile("\\[(NOTE|TIP|IMPORTANT|WARNING|CAUTION)]");
     private static final Pattern INLINE_ADMONITION = Pattern.compile("(NOTE|TIP|IMPORTANT|WARNING|CAUTION):\\s+(.*)");
     // ".Title" but not ". list item" and not "...." (handled earlier as a literal block)
     private static final Pattern BLOCK_TITLE = Pattern.compile("\\.([^.\\s].*)");
     private static final Pattern PAGE_ATTRIBUTE = Pattern.compile(":!?[\\w-]+!?:.*");
-    private static final Pattern IMAGE_BLOCK = Pattern.compile("image::.*\\[.*]");
+    // "image::", then up to the first "[", then anything up to a final "]". "(?:(?!\[).)*+" is "." that stops
+    // at the first "[": unlike [^\[] it still refuses line terminators, exactly as ".*" did
+    private static final Pattern IMAGE_BLOCK = Pattern.compile("image::(?:(?!\\[).)*+\\[.*]");
     private static final Pattern TOC = Pattern.compile("toc::\\[.*]");
     // "term::" or "term:: text". The term has no ':' and "::" is followed by whitespace or the line end,
     // so "String::valueOf" and "include::x[]" stay untouched
@@ -56,8 +62,10 @@ public class AsciidocConverter {
     private static final Pattern XREF = Pattern.compile("xref:([^\\[\\s]+)\\[([^]]*)]");
     // <<id>> or <<id,text>>. The target may be a section title with spaces ("<<Structured Outputs>>"),
     // so it is "a letter or _ (generated ids like _known_limitations), then anything but < > ,";
-    // "cat <<EOF" has no closing >> and does not match
-    private static final Pattern INTERNAL_XREF = Pattern.compile("<<([A-Za-z_][^,<>]*?)(?:,\\s*([^>]+))?>>");
+    // "cat <<EOF" has no closing >> and does not match.
+    // Possessive quantifiers: the id can only end at ",", "<" or ">", and the text only at ">", so giving
+    // characters back never helps. Spaces after the comma belong to the text, which is stripped on use
+    private static final Pattern INTERNAL_XREF = Pattern.compile("<<([A-Za-z_][^,<>]*+)(?:,([^>]++))?>>");
     // The target of link: may be relative ("link:../chat/ollama-chat.html[...]"), so any scheme is optional
     private static final Pattern LINK_MACRO = Pattern.compile("link:([^\\[\\s]+)\\[([^]]*)]");
     // A bare url needs a scheme; a url without brackets does not match and stays as is
@@ -72,125 +80,206 @@ public class AsciidocConverter {
 
     private static final Pattern EXTRA_BLANK_LINES = Pattern.compile("\n{3,}");
 
+    // (?s): same as startsWith("//"), a stray '\r' inside the line must not stop the match
+    private static final Pattern COMMENT_LINE = Pattern.compile("(?s)//.*");
+    private static final Pattern LIST_CONTINUATION = Pattern.compile("\\+");
+
+    /** A TEXT line rule: the first rule whose pattern matches the whole line decides what the line becomes. */
+    private record LineRule(Pattern pattern, Function<Matcher, Optional<String>> convert) {
+
+        static LineRule drop(Pattern pattern) {
+            return new LineRule(pattern, m -> Optional.empty());
+        }
+
+        static LineRule replace(Pattern pattern, Function<Matcher, String> convert) {
+            return new LineRule(pattern, convert.andThen(Optional::of));
+        }
+    }
+
+    // Must stay below the patterns: static fields are initialized in textual order, a rule declared earlier
+    // would hold a null pattern.
+    // Order matters: "...." (a code block, see Conversion) before ".Title", "[source]" (Conversion) and
+    // "[NOTE]" before any "[...]", "toc::[]" before "term::". Lines that change the state are handled
+    // by Conversion before these rules.
+    private static final List<LineRule> TEXT_RULES = List.of(
+            LineRule.drop(COMMENT_LINE),
+            LineRule.replace(HEADING, AsciidocConverter::heading),
+            // Example, sidebar and open block delimiters and list continuations carry no content
+            LineRule.drop(MEANINGLESS_DELIMITER),
+            LineRule.drop(LIST_CONTINUATION),
+            LineRule.replace(BLOCK_ADMONITION, m -> capitalize(m.group(1)) + ":"),
+            // [cols=...], [[anchor]], [#id], [tabs], [.lead]
+            LineRule.drop(ATTRIBUTE_LINE),
+            LineRule.replace(BLOCK_TITLE, m -> "**" + convertInline(m.group(1)) + "**"),
+            // :toc:, :toclevels: 3, toc::[]
+            LineRule.drop(PAGE_ATTRIBUTE),
+            LineRule.drop(TOC),
+            LineRule.replace(IMAGE_BLOCK, m -> IMAGE_MARKER),
+            LineRule.replace(INLINE_ADMONITION, m -> capitalize(m.group(1)) + ": " + convertInline(m.group(2))),
+            LineRule.replace(DESCRIPTION_TERM, AsciidocConverter::descriptionTerm));
+
     /**
      * Converts AsciiDoc markup to Markdown. Includes are already resolved by the loader. Curly braces are
      * never touched: in this documentation they are prompt template placeholders, not attributes.
      */
     public String convert(String asciidoc) {
-        List<String> out = new ArrayList<>();
-        State state = State.TEXT;
-        String closingDelimiter = null;   // exact line that ends the current block
-        String language = "";             // remembered from [source,...] until the next code delimiter
-        String codeLanguage = "";         // language of the current code block
-        // Code is buffered until the block ends: the fence length depends on what is inside
-        List<String> codeLines = new ArrayList<>();
-
-        for (String rawLine : asciidoc.replace("\r\n", "\n").split("\n", -1)) {
-            String line = rawLine.stripTrailing();
-            switch (state) {
-                case CODE -> {
-                    if (line.equals(closingDelimiter)) {
-                        addCodeBlock(out, codeLanguage, codeLines);
-                        state = State.TEXT;
-                    } else {
-                        codeLines.add(line);
-                    }
-                }
-                case TABLE -> {
-                    if (line.equals(closingDelimiter)) {
-                        out.add(FENCE);
-                        state = State.TEXT;
-                    } else if (!line.isBlank()) {
-                        // A table is documentation text laid out in cells, not code: inline rules apply,
-                        // line rules do not ("== x" or "// x" in a cell is cell content)
-                        out.add(convertInline(line));
-                    }
-                }
-                case COMMENT -> {
-                    if (line.equals(closingDelimiter)) {
-                        state = State.TEXT;
-                    }
-                }
-                case TEXT -> {
-                    Matcher m;
-                    // Order matters: "////" before "//", "...." before ".Title", "toc::[]" before "term::"
-                    if (COMMENT_BLOCK.matcher(line).matches()) {
-                        state = State.COMMENT;
-                        closingDelimiter = line;
-                    } else if (line.startsWith("//")) {
-                        // single-line comment: dropped
-                    } else if (CODE_DELIMITER.matcher(line).matches()) {
-                        codeLanguage = language;
-                        language = "";
-                        codeLines.clear();
-                        state = State.CODE;
-                        closingDelimiter = line;
-                    } else if ((m = MARKDOWN_FENCE.matcher(line)).matches()) {
-                        codeLanguage = m.group(1);
-                        language = "";
-                        codeLines.clear();
-                        state = State.CODE;
-                        closingDelimiter = FENCE;
-                    } else if (TABLE_DELIMITER.matcher(line).matches()) {
-                        out.add(FENCE + "table");
-                        state = State.TABLE;
-                        closingDelimiter = line;
-                    } else if ((m = HEADING.matcher(line)).matches()) {
-                        String title = HEADING_ANCHOR.matcher(m.group(2)).replaceAll("");
-                        out.add("#".repeat(m.group(1).length()) + " " + convertInline(title));
-                    } else if (MEANINGLESS_DELIMITER.matcher(line).matches() || line.equals("+")) {
-                        // block delimiter without meaning, or a list continuation: dropped
-                    } else if ((m = SOURCE_ATTRIBUTE.matcher(line)).matches()) {
-                        language = m.group(1) == null ? "" : m.group(1).strip();
-                    } else if ((m = BLOCK_ADMONITION.matcher(line)).matches()) {
-                        out.add(capitalize(m.group(1)) + ":");
-                    } else if (ATTRIBUTE_LINE.matcher(line).matches()) {
-                        // [cols=...], [[anchor]], [#id], [tabs], [.lead]: dropped
-                    } else if ((m = BLOCK_TITLE.matcher(line)).matches()) {
-                        out.add("**" + convertInline(m.group(1)) + "**");
-                    } else if (PAGE_ATTRIBUTE.matcher(line).matches() || TOC.matcher(line).matches()) {
-                        // :toc:, :toclevels: 3, toc::[]: dropped
-                    } else if (IMAGE_BLOCK.matcher(line).matches()) {
-                        out.add(IMAGE_MARKER);
-                    } else if ((m = INLINE_ADMONITION.matcher(line)).matches()) {
-                        out.add(capitalize(m.group(1)) + ": " + convertInline(m.group(2)));
-                    } else if ((m = DESCRIPTION_TERM.matcher(line)).matches()) {
-                        String text = m.group(2) == null ? "" : " " + convertInline(m.group(2));
-                        out.add(m.group(1) + ":" + text);
-                    } else {
-                        out.add(convertInline(line));
-                    }
-                }
-            }
+        Conversion conversion = new Conversion();
+        for (String line : asciidoc.replace("\r\n", "\n").split("\n", -1)) {
+            conversion.accept(line.stripTrailing());
         }
-        // A file that ends inside a block still yields a balanced fence for the chunker
-        if (state == State.CODE) {
-            addCodeBlock(out, codeLanguage, codeLines);
-        } else if (state == State.TABLE) {
-            out.add(FENCE);
-        }
-
-        String result = String.join("\n", out);
-        result = EXTRA_BLANK_LINES.matcher(result).replaceAll("\n\n");
-        return result.strip();
+        return conversion.finish();
     }
 
-    /**
-     * Emits a fenced block. CommonMark closes a fence only with one at least as long, so when the code itself
-     * contains a ``` line (a Markdown sample), the fence is made one backtick longer than the longest inner run.
-     */
-    private static void addCodeBlock(List<String> out, String language, List<String> codeLines) {
-        int longestRun = 0;
-        for (String line : codeLines) {
-            Matcher run = BACKTICK_RUN.matcher(line);
-            if (run.lookingAt()) {
-                longestRun = Math.max(longestRun, run.group(1).length());
+    /** Mutable state of one {@link #convert} call; the component itself stays stateless and thread-safe. */
+    private static final class Conversion {
+
+        private final List<String> out = new ArrayList<>();
+        // Code is buffered until the block ends: the fence length depends on what is inside
+        private final List<String> codeLines = new ArrayList<>();
+        private State state = State.TEXT;
+        private String closingDelimiter;   // exact line that ends the current block
+        private String language = "";      // remembered from [source,...] until the next code delimiter
+        private String codeLanguage = "";  // language of the current code block
+
+        void accept(String line) {
+            switch (state) {
+                case CODE -> inCode(line);
+                case TABLE -> inTable(line);
+                case COMMENT -> inComment(line);
+                case TEXT -> inText(line);
             }
         }
-        String fence = "`".repeat(Math.max(FENCE.length(), longestRun + 1));
-        out.add(fence + language);
-        out.addAll(codeLines);
-        out.add(fence);
+
+        String finish() {
+            // A file that ends inside a block still yields a balanced fence for the chunker
+            if (state == State.CODE) {
+                addCodeBlock();
+            } else if (state == State.TABLE) {
+                out.add(FENCE);
+            }
+            String result = String.join("\n", out);
+            result = EXTRA_BLANK_LINES.matcher(result).replaceAll("\n\n");
+            return result.strip();
+        }
+
+        private void inCode(String line) {
+            if (line.equals(closingDelimiter)) {
+                addCodeBlock();
+                state = State.TEXT;
+            } else {
+                codeLines.add(line);
+            }
+        }
+
+        private void inTable(String line) {
+            if (line.equals(closingDelimiter)) {
+                out.add(FENCE);
+                state = State.TEXT;
+            } else if (!line.isBlank()) {
+                // A table is documentation text laid out in cells, not code: inline rules apply,
+                // line rules do not ("== x" or "// x" in a cell is cell content)
+                out.add(convertInline(line));
+            }
+        }
+
+        private void inComment(String line) {
+            if (line.equals(closingDelimiter)) {
+                state = State.TEXT;
+            }
+        }
+
+        private void inText(String line) {
+            if (startBlock(line) || rememberSourceLanguage(line)) {
+                return;
+            }
+            convertTextLine(line).ifPresent(out::add);
+        }
+
+        /** Comment, code (----, ...., ```) or table start: switches the state and returns true. */
+        private boolean startBlock(String line) {
+            // "////" before the "//" line comment in TEXT_RULES
+            if (COMMENT_BLOCK.matcher(line).matches()) {
+                enter(State.COMMENT, line);
+                return true;
+            }
+            if (CODE_DELIMITER.matcher(line).matches()) {
+                openCode(language, line);
+                return true;
+            }
+            Matcher fence = MARKDOWN_FENCE.matcher(line);
+            if (fence.matches()) {
+                openCode(fence.group(1), FENCE);
+                return true;
+            }
+            if (TABLE_DELIMITER.matcher(line).matches()) {
+                out.add(FENCE + "table");
+                enter(State.TABLE, line);
+                return true;
+            }
+            return false;
+        }
+
+        private boolean rememberSourceLanguage(String line) {
+            Matcher source = SOURCE_ATTRIBUTE.matcher(line);
+            if (!source.matches()) {
+                return false;
+            }
+            language = source.group(1) == null ? "" : source.group(1).strip();
+            return true;
+        }
+
+        private void openCode(String blockLanguage, String closing) {
+            codeLanguage = blockLanguage;
+            // A [source] line applies to the next code block only
+            language = "";
+            codeLines.clear();
+            enter(State.CODE, closing);
+        }
+
+        private void enter(State blockState, String closing) {
+            state = blockState;
+            closingDelimiter = closing;
+        }
+
+        /**
+         * Emits the buffered code block. CommonMark closes a fence only with one at least as long, so when
+         * the code itself contains a ``` line (a Markdown sample), the fence is made one backtick longer than
+         * the longest inner run.
+         */
+        private void addCodeBlock() {
+            int longestRun = 0;
+            for (String line : codeLines) {
+                Matcher run = BACKTICK_RUN.matcher(line);
+                if (run.lookingAt()) {
+                    longestRun = Math.max(longestRun, run.group(1).length());
+                }
+            }
+            String fence = "`".repeat(Math.max(FENCE.length(), longestRun + 1));
+            out.add(fence + codeLanguage);
+            out.addAll(codeLines);
+            out.add(fence);
+        }
+
+        /** First matching rule; a line no rule knows is plain text with inline markup. */
+        private static Optional<String> convertTextLine(String line) {
+            for (LineRule rule : TEXT_RULES) {
+                Matcher m = rule.pattern().matcher(line);
+                if (m.matches()) {
+                    return rule.convert().apply(m);
+                }
+            }
+            return Optional.of(convertInline(line));
+        }
+    }
+
+    private static String heading(Matcher m) {
+        String title = HEADING_ANCHOR.matcher(m.group(2)).replaceAll("");
+        return "#".repeat(m.group(1).length()) + " " + convertInline(title);
+    }
+
+    private static String descriptionTerm(Matcher m) {
+        String text = m.group(2) == null ? "" : " " + convertInline(m.group(2));
+        return m.group(1) + ":" + text;
     }
 
     /** Keeps link text only; an empty text falls back to the target. */
@@ -208,8 +297,9 @@ public class AsciidocConverter {
     }
 
     private static String textOrTarget(MatchResult m) {
+        String text = m.group(2);
         // quoteReplacement: link text such as "costs $1" must not be read as a group reference
-        return Matcher.quoteReplacement(m.group(2).isBlank() ? m.group(1) : m.group(2));
+        return Matcher.quoteReplacement(text.isBlank() ? m.group(1) : text);
     }
 
     private static String unwrapPassthrough(String text) {

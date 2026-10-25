@@ -2,6 +2,13 @@ spring:
   application:
     name: devdocs-rag
 
+  profiles:
+    group:
+      # One-shot tools: each activates its own runner and pulls in the shared "oneshot" settings
+      export-issues: oneshot
+      preview-issues: oneshot
+      preview-docs: oneshot
+
   threads:
     virtual:
       enabled: true   # LLM calls are long blocking I/O, a good fit for virtual threads

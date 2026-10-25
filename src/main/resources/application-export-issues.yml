@@ -1,9 +1,0 @@
-# One-shot issue export: no web server, datasource or Flyway,
-# so taking a snapshot does not require a running Postgres.
-spring:
-  main:
-    web-application-type: none
-  autoconfigure:
-    exclude:
-      - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
-      - org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration
