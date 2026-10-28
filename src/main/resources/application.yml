@@ -68,3 +68,11 @@ devdocs:
     base-url: https://docs.spring.io/spring-ai/reference/
     # Git tag of the checked-out docs, stored in document.source_ref
     source-ref: v2.0.1
+  # Required in every profile: ChunkingProperties is validated on startup.
+  chunking:
+    # tokenizer.json of the embedding model (scripts/download-models.sh); token limits below are counted with it
+    tokenizer-path: models/bge-m3/tokenizer.json
+    target-tokens: 450    # soft goal: chunks are packed up to this size
+    max-tokens: 800       # hard ceiling: no chunk is ever larger
+    min-tokens: 80        # smaller chunks are merged with their siblings
+    overlap-tokens: 60    # overlap between chunks within one section

@@ -26,6 +26,8 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-validation")
 	implementation("org.springframework.boot:spring-boot-starter-webmvc")
 	implementation("org.springframework.ai:spring-ai-starter-model-ollama")
+	// Rust HF tokenizers via JNI: counts tokens exactly as the bge-m3 embedding model does
+	implementation("ai.djl.huggingface:tokenizers:0.39.0")
 	runtimeOnly("org.flywaydb:flyway-database-postgresql")
 	runtimeOnly("org.postgresql:postgresql")
 	testImplementation("org.springframework.boot:spring-boot-starter-actuator-test")
@@ -47,8 +49,22 @@ dependencyManagement {
 	}
 }
 
+// JNA loads the native DJL tokenizer via System.load, a restricted method since JDK 24;
+// without this flag the JVM prints a warning now and will block the call in a future release
+val nativeAccess = "--enable-native-access=ALL-UNNAMED"
+
+tasks.bootRun {
+	jvmArgs(nativeAccess)
+}
+
+tasks.bootJar {
+	// Same permission for java -jar: the JVM reads it from the executable JAR manifest
+	manifest.attributes("Enable-Native-Access" to "ALL-UNNAMED")
+}
+
 tasks.withType<Test> {
 	useJUnitPlatform()
+	jvmArgs(nativeAccess)
 	testLogging {
 		// CI=true is set by GitHub Actions, GitLab CI and most other CI servers; there passed tests would flood the log
 		val ci = System.getenv("CI") != null

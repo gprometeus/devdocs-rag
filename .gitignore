@@ -36,3 +36,9 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### Model files ###
+# Too large for git: fetched by scripts/download-models.sh, only their checksums are committed
+/models/**
+!/models/**/
+!/models/**/*.sha256
