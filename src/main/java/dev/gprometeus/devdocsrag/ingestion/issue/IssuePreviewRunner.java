@@ -18,9 +18,11 @@ import java.util.Comparator;
 import java.util.IntSummaryStatistics;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
- * Writes the first issue documents to a text file and logs text statistics, then exits the application.
+ * Writes the first issue documents to a text file, every document to its own Markdown file
+ * ({@code build/issue-preview/<number>.md}), logs text statistics, then exits the application.
  * <p>
  * Usage: {@code ./gradlew bootRun --args='--spring.profiles.active=preview-issues'}
  */
@@ -31,6 +33,8 @@ public class IssuePreviewRunner implements CommandLineRunner {
     private static final Logger log = LoggerFactory.getLogger(IssuePreviewRunner.class);
 
     private static final Path PREVIEW_FILE = Path.of("build", "preview", "issues-preview.txt");
+    private static final Path DOCUMENTS_DIR = Path.of("build", "issue-preview");
+    private static final String DOCUMENT_EXTENSION = ".md";
     private static final int PREVIEW_LIMIT = 20;
     private static final int LONGEST_LIMIT = 5;
     private static final String REDACTED_MARKER = "[REDACTED";
@@ -52,6 +56,7 @@ public class IssuePreviewRunner implements CommandLineRunner {
     public void run(String... args) throws IOException {
         List<SourceDocument> documents = loader.load();
         writePreview(documents);
+        writeDocuments(documents);
         logStatistics(documents);
         // One-shot profile: shut down instead of keeping the context alive.
         // On failure Spring Boot closes the context and exits with a non-zero code.
@@ -70,6 +75,25 @@ public class IssuePreviewRunner implements CommandLineRunner {
         }
         log.info("Preview of {} documents written to {}", Math.min(PREVIEW_LIMIT, documents.size()),
                 PREVIEW_FILE.toAbsolutePath());
+    }
+
+    /** One file per document with its final text, i.e. what gets hashed and chunked (after redaction). */
+    private void writeDocuments(List<SourceDocument> documents) throws IOException {
+        Files.createDirectories(DOCUMENTS_DIR);
+        // Files of issues that are no longer loaded (filter or cleaning changed) would pass for current output
+        List<Path> stale;
+        try (Stream<Path> files = Files.list(DOCUMENTS_DIR)) {
+            stale = files.filter(file -> file.getFileName().toString().endsWith(DOCUMENT_EXTENSION)).toList();
+        }
+        for (Path file : stale) {
+            Files.delete(file);
+        }
+        for (SourceDocument doc : documents) {
+            // sourceId is the issue number, so it is a safe file name. The trailing newline is the text file convention
+            Path file = DOCUMENTS_DIR.resolve(doc.sourceId() + DOCUMENT_EXTENSION);
+            Files.writeString(file, doc.text() + "\n", StandardCharsets.UTF_8);
+        }
+        log.info("{} documents written to {}", documents.size(), DOCUMENTS_DIR.toAbsolutePath());
     }
 
     private void logStatistics(List<SourceDocument> documents) {
