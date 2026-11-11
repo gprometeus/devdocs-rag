@@ -16,7 +16,20 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
- * Renders an issue snapshot as plain text for embedding and citation.
+ * Renders an issue snapshot as a Markdown document for embedding and citation:
+ * <pre>
+ * # Issue #&lt;number&gt;: &lt;title&gt;
+ * Labels: ...
+ * Closed: ...
+ *
+ * ## Description
+ * ...
+ *
+ * ## Comment 1 (&lt;role&gt;)
+ * ...
+ * </pre>
+ * Headings in the author's text are demoted by two levels, so they nest under the section they belong to
+ * and never compete with the document structure.
  * <p>
  * Returns empty when nothing but the header is left after cleaning, so header-only
  * documents never reach the index.
@@ -66,6 +79,11 @@ public class IssueTextBuilder {
     private static final Pattern QUOTE_LINE = Pattern.compile(" {0,3}>.*");
     private static final Pattern TRAILING_WHITESPACE = Pattern.compile("[ \\t]+$", Pattern.MULTILINE);
     private static final Pattern EXTRA_BLANK_LINES = Pattern.compile("\n{3,}");
+    // CommonMark ATX heading: up to 3 spaces, 1-6 '#', then a space, a tab or the end of the line.
+    // So "#6916" (an issue reference) and "####### x" (7 hashes) are text. Setext headings are not touched
+    private static final Pattern ATX_HEADING = Pattern.compile("( {0,3})(#{1,6})((?:[ \\t].*)?)");
+    private static final int HEADING_DEMOTION = 2;
+    private static final int MAX_HEADING_LEVEL = 6;
 
     private static final Comparator<IssueComment> BY_CREATED_AT =
             Comparator.comparing(IssueComment::createdAt, Comparator.nullsLast(Comparator.naturalOrder()));
@@ -75,16 +93,19 @@ public class IssueTextBuilder {
 
         String body = clean(issue.body());
         if (!body.isEmpty()) {
-            blocks.add(body);
+            blocks.add("## Description\n" + demoteHeadings(body));
         }
 
         // List.sort is stable, so comments with equal timestamps keep their snapshot order
         List<IssueComment> comments = new ArrayList<>(issue.comments());
         comments.sort(BY_CREATED_AT);
+        // Numbered among the kept comments only: GitHub shows no numbers, so gaps like "1, 4, 7" would mean nothing
+        int number = 0;
         for (IssueComment comment : comments) {
-            String block = commentBlock(comment);
+            String block = commentBlock(comment, number + 1);
             if (block != null) {
                 blocks.add(block);
+                number++;
             }
         }
         if (blocks.isEmpty()) {
@@ -95,7 +116,7 @@ public class IssueTextBuilder {
     }
 
     private static String header(IssueSnapshot issue) {
-        StringBuilder header = new StringBuilder("Issue #").append(issue.number());
+        StringBuilder header = new StringBuilder("# Issue #").append(issue.number());
         String title = issue.title() == null ? "" : issue.title().strip();
         if (!title.isEmpty()) {
             header.append(": ").append(title);
@@ -112,7 +133,7 @@ public class IssueTextBuilder {
     }
 
     /** Returns null when the comment is skipped as bot output or noise. */
-    private static String commentBlock(IssueComment comment) {
+    private static String commentBlock(IssueComment comment, int number) {
         if (BOT.equals(comment.authorType())) {
             return null;
         }
@@ -121,7 +142,7 @@ public class IssueTextBuilder {
         if (text.isEmpty() || (text.length() < MIN_COMMENT_LENGTH && !"maintainer".equals(role))) {
             return null;
         }
-        return "Comment (" + role + "):\n" + text;
+        return "## Comment " + number + " (" + role + ")\n" + demoteHeadings(text);
     }
 
     private static String role(String authorAssociation) {
@@ -180,6 +201,25 @@ public class IssueTextBuilder {
             kept.add(line.text());
         }
         return String.join("\n", kept);
+    }
+
+    /**
+     * Shifts the author's ATX headings two levels down, capped at level 6. Runs on the cleaned text,
+     * so headings that were inside removed quotes play no part. Code lines are kept: there
+     * {@code # comment} is a shell or YAML comment, not a heading.
+     */
+    private static String demoteHeadings(String text) {
+        List<String> lines = new ArrayList<>();
+        for (MarkdownFences.Line line : MarkdownFences.scan(text)) {
+            Matcher heading = ATX_HEADING.matcher(line.text());
+            if (line.kind() == MarkdownFences.Kind.TEXT && heading.matches()) {
+                int level = Math.min(heading.group(2).length() + HEADING_DEMOTION, MAX_HEADING_LEVEL);
+                lines.add(heading.group(1) + "#".repeat(level) + heading.group(3));
+            } else {
+                lines.add(line.text());
+            }
+        }
+        return String.join("\n", lines);
     }
 
     /** Keeps the first frames of each run of "at ..." lines and replaces the rest with a single marker line. */

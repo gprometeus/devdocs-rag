@@ -16,24 +16,25 @@ class IssueTextBuilderTest {
     private final IssueTextBuilder builder = new IssueTextBuilder();
 
     @Test
-    void rendersHeaderBodyAndCommentsSeparatedByBlankLines() {
+    void rendersMarkdownWithTitleMetadataAndSections() {
         IssueSnapshot issue = issue("Starter docs are unclear\r\n\r\nWhich starter should I use?", List.of("documentation", "mcp"),
                 comment("MEMBER", "User", "Use the WebMVC starter for servlet apps.", "2025-08-02T10:00:00Z"),
                 comment("NONE", "User", "Thanks, that solved my problem completely!", "2025-08-03T10:00:00Z"));
 
         assertThat(builder.build(issue).orElseThrow()).isEqualTo("""
-                Issue #3511: MCP Server starter selection is confusing
+                # Issue #3511: MCP Server starter selection is confusing
                 Labels: documentation, mcp
                 Closed: 2025-08-12
 
+                ## Description
                 Starter docs are unclear
 
                 Which starter should I use?
 
-                Comment (maintainer):
+                ## Comment 1 (maintainer)
                 Use the WebMVC starter for servlet apps.
 
-                Comment (user):
+                ## Comment 2 (user)
                 Thanks, that solved my problem completely!""");
     }
 
@@ -42,9 +43,10 @@ class IssueTextBuilderTest {
         IssueSnapshot issue = issue("Steps to reproduce the problem", List.of());
 
         assertThat(builder.build(issue).orElseThrow()).isEqualTo("""
-                Issue #3511: MCP Server starter selection is confusing
+                # Issue #3511: MCP Server starter selection is confusing
                 Closed: 2025-08-12
 
+                ## Description
                 Steps to reproduce the problem""");
     }
 
@@ -78,9 +80,10 @@ class IssueTextBuilderTest {
                 """, List.of());
 
         assertThat(builder.build(issue).orElseThrow()).isEqualTo("""
-                Issue #3511: MCP Server starter selection is confusing
+                # Issue #3511: MCP Server starter selection is confusing
                 Closed: 2025-08-12
 
+                ## Description
                 **Bug description**
                 Two system messages are sent
 
@@ -93,7 +96,7 @@ class IssueTextBuilderTest {
         IssueSnapshot issue = issue("A clear and concise description of what the bug is about: NPE on startup", List.of());
 
         assertThat(builder.build(issue).orElseThrow())
-                .endsWith("\n\nA clear and concise description of what the bug is about: NPE on startup");
+                .endsWith("\n## Description\nA clear and concise description of what the bug is about: NPE on startup");
     }
 
     @Test
@@ -108,7 +111,7 @@ class IssueTextBuilderTest {
 
         assertThat(builder.build(issue).orElseThrow()).endsWith("""
 
-
+                ## Description
                 I get this error:
                 [image]
                 Logs: [image] see above
@@ -120,7 +123,7 @@ class IssueTextBuilderTest {
         String body = "See [the docs](https://docs.spring.io/spring-ai) and List<Image> or <imgSource> in the API";
         IssueSnapshot issue = issue(body, List.of());
 
-        assertThat(builder.build(issue).orElseThrow()).endsWith("\n\n" + body);
+        assertThat(builder.build(issue).orElseThrow()).endsWith("\n## Description\n" + body);
     }
 
     @Test
@@ -147,10 +150,10 @@ class IssueTextBuilderTest {
                 comment("COLLABORATOR", "User", "First comment, posted earlier", "2025-08-01T10:00:00Z"));
 
         assertThat(builder.build(issue).orElseThrow()).endsWith("""
-                Comment (maintainer):
+                ## Comment 1 (maintainer)
                 First comment, posted earlier
 
-                Comment (contributor):
+                ## Comment 2 (contributor)
                 Second comment, posted later""");
     }
 
@@ -164,10 +167,10 @@ class IssueTextBuilderTest {
                 comment("MEMBER", "User", "<!-- empty -->", "2025-08-05T10:00:00Z"));
 
         assertThat(builder.build(issue).orElseThrow()).isEqualTo("""
-                Issue #3511: MCP Server starter selection is confusing
+                # Issue #3511: MCP Server starter selection is confusing
                 Closed: 2025-08-12
 
-                Comment (maintainer):
+                ## Comment 1 (maintainer)
                 Fixed in 1.0.1""");
     }
 
@@ -177,7 +180,7 @@ class IssueTextBuilderTest {
                 comment(null, "User", "Same here, downgrading to 1.0.0 helped.", "2025-08-01T10:00:00Z"));
 
         assertThat(builder.build(issue).orElseThrow()).endsWith("""
-                Comment (user):
+                ## Comment 1 (user)
                 Same here, downgrading to 1.0.0 helped.""");
     }
 
@@ -193,7 +196,7 @@ class IssueTextBuilderTest {
     void removesEachHtmlCommentSeparately() {
         IssueSnapshot issue = issue("<!-- multi\nline -->Keep this<!-- second -->", List.of());
 
-        assertThat(builder.build(issue).orElseThrow()).endsWith("\n\nKeep this");
+        assertThat(builder.build(issue).orElseThrow()).endsWith("\n## Description\nKeep this");
     }
 
     @Test
@@ -236,7 +239,7 @@ class IssueTextBuilderTest {
         IssueSnapshot issue = new IssueSnapshot(3511, "  ", "Body text", null, "completed", List.of(),
                 null, CLOSED_AT, List.of());
 
-        assertThat(builder.build(issue).orElseThrow()).startsWith("Issue #3511\nClosed: 2025-08-12");
+        assertThat(builder.build(issue).orElseThrow()).startsWith("# Issue #3511\nClosed: 2025-08-12");
     }
 
     @Test
@@ -255,7 +258,7 @@ class IssueTextBuilderTest {
                 comment("NONE", "User", reply, "2025-08-01T10:00:00Z"));
 
         assertThat(builder.build(issue).orElseThrow()).endsWith("""
-                Comment (user):
+                ## Comment 1 (user)
                 Increase spring.ai.openai.read-timeout to fix it.""");
     }
 
@@ -284,7 +287,7 @@ class IssueTextBuilderTest {
     void collapsesBlankLinesAndKeepsFormatSpecifiers() {
         IssueSnapshot issue = issue("Expected %d items, got %s\n\n\n \n\nDone", List.of());
 
-        assertThat(builder.build(issue).orElseThrow()).endsWith("\n\nExpected %d items, got %s\n\nDone");
+        assertThat(builder.build(issue).orElseThrow()).endsWith("\n## Description\nExpected %d items, got %s\n\nDone");
     }
 
     @Test
@@ -293,9 +296,72 @@ class IssueTextBuilderTest {
 
         assertThat(builder.build(issue).orElseThrow()).endsWith("""
 
+                ## Description
                 Adjust the hints if needed.
                  - [x] OpenAI
                  - [ ] Ollama""");
+    }
+
+    @Test
+    void demotesAuthorHeadingsByTwoLevels() {
+        IssueSnapshot issue = issue("# Problem\nDetails\n   ## Steps\n#\n#\tTabbed", List.of(),
+                comment("MEMBER", "User", "## Root cause\nThe pool is too small", "2025-08-01T10:00:00Z"));
+
+        assertThat(builder.build(issue).orElseThrow()).endsWith("""
+                ## Description
+                ### Problem
+                Details
+                   #### Steps
+                ###
+                ###\tTabbed
+
+                ## Comment 1 (maintainer)
+                #### Root cause
+                The pool is too small""");
+    }
+
+    @Test
+    void keepsHashLinesInsideCodeBlocks() {
+        String body = """
+                Run this:
+                ```bash
+                # comment
+                ## not a heading either
+                ```
+                ~~~yaml
+                # spring config
+                ~~~""";
+
+        assertThat(builder.build(issue(body, List.of())).orElseThrow()).endsWith("## Description\n" + body);
+    }
+
+    @Test
+    void keepsIssueReferencesAndNonHeadingHashes() {
+        String body = """
+                #6916 fixed it, see also #123.
+                ####### seven hashes is text
+                    # indented code
+                Setext title
+                ============""";
+
+        assertThat(builder.build(issue(body, List.of())).orElseThrow()).endsWith("## Description\n" + body);
+    }
+
+    @Test
+    void capsDemotedHeadingsAtLevelSix() {
+        IssueSnapshot issue = issue("#### Four\n##### Five\n###### Six", List.of());
+
+        assertThat(builder.build(issue).orElseThrow()).endsWith("""
+                ###### Four
+                ###### Five
+                ###### Six""");
+    }
+
+    @Test
+    void ignoresHeadingsInsideRemovedQuotes() {
+        IssueSnapshot issue = issue("> # Quoted heading\nOwn text", List.of());
+
+        assertThat(builder.build(issue).orElseThrow()).endsWith("## Description\nOwn text");
     }
 
     private static IssueSnapshot issue(String body, List<String> labels, IssueComment... comments) {

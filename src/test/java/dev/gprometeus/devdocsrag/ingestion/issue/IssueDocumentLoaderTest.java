@@ -41,7 +41,7 @@ class IssueDocumentLoaderTest {
             assertThat(doc.sourceRef()).isEqualTo("snapshot:spring-ai-issues-2026-10-17.jsonl");
             assertThat(doc.title()).isEqualTo("Key leaked by [REDACTED_EMAIL]");
             assertThat(doc.text())
-                    .startsWith("Issue #1: Key leaked by [REDACTED_EMAIL]")
+                    .startsWith("# Issue #1: Key leaked by [REDACTED_EMAIL]")
                     .contains("My key is [REDACTED_OPENAI_KEY]")
                     .doesNotContain(FAKE_KEY);
         });
