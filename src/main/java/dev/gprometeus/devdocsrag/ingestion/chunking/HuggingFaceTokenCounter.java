@@ -1,4 +1,4 @@
-package dev.gprometeus.devdocsrag.chunking;
+package dev.gprometeus.devdocsrag.ingestion.chunking;
 
 import ai.djl.huggingface.tokenizers.HuggingFaceTokenizer;
 import org.springframework.stereotype.Component;

@@ -1,4 +1,4 @@
-package dev.gprometeus.devdocsrag.chunking;
+package dev.gprometeus.devdocsrag.ingestion.chunking;
 
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotNull;

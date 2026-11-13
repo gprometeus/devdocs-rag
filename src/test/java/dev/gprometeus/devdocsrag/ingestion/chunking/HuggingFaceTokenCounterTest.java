@@ -1,4 +1,4 @@
-package dev.gprometeus.devdocsrag.chunking;
+package dev.gprometeus.devdocsrag.ingestion.chunking;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;

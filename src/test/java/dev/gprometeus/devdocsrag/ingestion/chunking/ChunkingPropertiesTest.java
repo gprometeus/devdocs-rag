@@ -1,4 +1,4 @@
-package dev.gprometeus.devdocsrag.chunking;
+package dev.gprometeus.devdocsrag.ingestion.chunking;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
