@@ -25,11 +25,10 @@ class IncludeResolverTest {
         write("partials/openai/http-client.adoc", "== HTTP client\nCustomize it.\n");
         Path page = write("pages/api/chat/openai-chat.adoc", "");
 
-        String text = resolver.resolve(page, "Before\ninclude::partial$openai/http-client.adoc[]\nAfter", root);
+        IncludeResolver.Result result = resolver.resolve(page, "Before\ninclude::partial$openai/http-client.adoc[]\nAfter", root);
 
-        assertThat(text).isEqualTo("Before\n== HTTP client\nCustomize it.\nAfter");
-        assertThat(resolver.resolvedCount()).isEqualTo(1);
-        assertThat(resolver.missingCount()).isZero();
+        assertThat(result.text()).isEqualTo("Before\n== HTTP client\nCustomize it.\nAfter");
+        assertThat(result.stats()).isEqualTo(new IncludeStats(1, 0, 0));
     }
 
     @Test
@@ -37,7 +36,7 @@ class IncludeResolverTest {
         write("pages/api/bedrock.adoc", "Bedrock common text");
         Path page = write("pages/api/bedrock-chat.adoc", "");
 
-        assertThat(resolver.resolve(page, "include::bedrock.adoc[tag=intro]", root))
+        assertThat(resolver.resolve(page, "include::bedrock.adoc[tag=intro]", root).text())
                 .isEqualTo("Bedrock common text");
     }
 
@@ -47,9 +46,10 @@ class IncludeResolverTest {
         write("partials/inner.adoc", "inner");
         Path page = write("pages/page.adoc", "");
 
-        assertThat(resolver.resolve(page, "include::partial$outer.adoc[]", root))
-                .isEqualTo("outer start\ninner\nouter end");
-        assertThat(resolver.resolvedCount()).isEqualTo(2);
+        IncludeResolver.Result result = resolver.resolve(page, "include::partial$outer.adoc[]", root);
+
+        assertThat(result.text()).isEqualTo("outer start\ninner\nouter end");
+        assertThat(result.stats()).isEqualTo(new IncludeStats(2, 0, 0));
     }
 
     @Test
@@ -60,19 +60,20 @@ class IncludeResolverTest {
         write("partials/l4.adoc", "l4");
         Path page = write("pages/page.adoc", "");
 
-        assertThat(resolver.resolve(page, "include::partial$l1.adoc[]", root)).isEqualTo("l1\nl2\nl3");
-        assertThat(resolver.skippedCount()).isEqualTo(1);
+        IncludeResolver.Result result = resolver.resolve(page, "include::partial$l1.adoc[]", root);
+
+        assertThat(result.text()).isEqualTo("l1\nl2\nl3");
+        assertThat(result.stats()).isEqualTo(new IncludeStats(3, 0, 1));
     }
 
     @Test
     void missingFileInsertsNothingCountsAndWarns(CapturedOutput output) throws IOException {
         Path page = write("pages/page.adoc", "");
 
-        String text = resolver.resolve(page, "Before\ninclude::partial$nope.adoc[]\nAfter", root);
+        IncludeResolver.Result result = resolver.resolve(page, "Before\ninclude::partial$nope.adoc[]\nAfter", root);
 
-        assertThat(text).isEqualTo("Before\nAfter");
-        assertThat(resolver.missingCount()).isEqualTo(1);
-        assertThat(resolver.resolvedCount()).isZero();
+        assertThat(result.text()).isEqualTo("Before\nAfter");
+        assertThat(result.stats()).isEqualTo(new IncludeStats(0, 1, 0));
         assertThat(output).contains("WARN").contains("page.adoc").contains("partial$nope.adoc");
     }
 
@@ -81,8 +82,10 @@ class IncludeResolverTest {
         Files.writeString(root.getParent().resolve("outside.adoc"), "secret");
         Path page = write("pages/page.adoc", "");
 
-        assertThat(resolver.resolve(page, "include::../../outside.adoc[]", root)).isEmpty();
-        assertThat(resolver.missingCount()).isEqualTo(1);
+        IncludeResolver.Result result = resolver.resolve(page, "include::../../outside.adoc[]", root);
+
+        assertThat(result.text()).isEmpty();
+        assertThat(result.stats()).isEqualTo(new IncludeStats(0, 1, 0));
     }
 
     @Test
@@ -91,9 +94,10 @@ class IncludeResolverTest {
         write("partials/b.adoc", "b\ninclude::partial$a.adoc[]");
         Path page = write("pages/page.adoc", "");
 
-        assertThat(resolver.resolve(page, "include::partial$a.adoc[]", root)).isEqualTo("a\nb");
-        assertThat(resolver.resolvedCount()).isEqualTo(2);
-        assertThat(resolver.skippedCount()).isEqualTo(1);
+        IncludeResolver.Result result = resolver.resolve(page, "include::partial$a.adoc[]", root);
+
+        assertThat(result.text()).isEqualTo("a\nb");
+        assertThat(result.stats()).isEqualTo(new IncludeStats(2, 0, 1));
     }
 
     @Test
@@ -101,7 +105,7 @@ class IncludeResolverTest {
         write("partials/note.adoc", "note");
         Path page = write("pages/page.adoc", "");
 
-        assertThat(resolver.resolve(page, "include::partial$note.adoc[]\ninclude::partial$note.adoc[]", root))
+        assertThat(resolver.resolve(page, "include::partial$note.adoc[]\ninclude::partial$note.adoc[]", root).text())
                 .isEqualTo("note\nnote");
     }
 
@@ -117,18 +121,15 @@ class IncludeResolverTest {
                 include::partial$x.adoc[]
                 ```""";
 
-        assertThat(resolver.resolve(page, text, root)).isEqualTo(text);
-        assertThat(resolver.resolvedCount()).isZero();
+        assertThat(resolver.resolve(page, text, root)).isEqualTo(new IncludeResolver.Result(text, IncludeStats.EMPTY));
     }
 
     @Test
-    void resetCountersStartsFromZero() throws IOException {
+    void eachCallCountsOnlyItsOwnIncludes() throws IOException {
         Path page = write("pages/page.adoc", "");
         resolver.resolve(page, "include::partial$nope.adoc[]", root);
 
-        resolver.resetCounters();
-
-        assertThat(resolver.missingCount()).isZero();
+        assertThat(resolver.resolve(page, "no includes", root).stats()).isEqualTo(IncludeStats.EMPTY);
     }
 
     private Path write(String relative, String content) throws IOException {

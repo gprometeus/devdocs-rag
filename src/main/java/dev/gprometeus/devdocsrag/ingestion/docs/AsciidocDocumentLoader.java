@@ -41,15 +41,18 @@ public class AsciidocDocumentLoader {
         this.converter = converter;
     }
 
-    /** Pages in sourceId order; include counters of {@link IncludeResolver} describe this load afterwards. */
-    public List<SourceDocument> load() {
+    /** Pages in sourceId order, with the include counts of this load. */
+    public DocsLoadResult load() {
         Path pages = props.pagesDir();
-        includeResolver.resetCounters();
         List<SourceDocument> documents = new ArrayList<>();
+        IncludeStats includes = IncludeStats.EMPTY;
         int skipped = 0;
         for (Path file : pageFiles(pages)) {
             String sourceId = sourceId(pages, file);
-            String text = converter.convert(includeResolver.resolve(file, read(file), props.root()));
+            IncludeResolver.Result resolved = includeResolver.resolve(file, read(file), props.root());
+            // Counted before the skip check: a missing include is exactly what empties a skipped page
+            includes = includes.plus(resolved.stats());
+            String text = converter.convert(resolved.text());
             String titleLine = titleLine(text);
             // A page that only includes partials which were not found ends up empty or heading-only
             if (text.isBlank() || text.strip().equals(titleLine)) {
@@ -69,7 +72,7 @@ public class AsciidocDocumentLoader {
                     text));
         }
         log.info("Loaded {} doc pages from {}, skipped {} without content", documents.size(), pages, skipped);
-        return documents;
+        return new DocsLoadResult(documents, includes);
     }
 
     private static List<Path> pageFiles(Path pages) {

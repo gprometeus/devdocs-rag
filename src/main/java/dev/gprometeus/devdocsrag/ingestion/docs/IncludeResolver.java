@@ -12,7 +12,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -23,7 +22,8 @@ import java.util.regex.Pattern;
  * Lines inside code blocks are left untouched. A missing file inserts nothing and is logged,
  * so a broken include is visible in the preview statistics instead of silently shrinking the index.
  * <p>
- * The counters accumulate across calls until {@link #resetCounters()}; the loader resets them per load.
+ * Stateless: the counts come back with the text in a {@link Result}, so concurrent or repeated calls
+ * never mix their statistics and the caller has nothing to reset.
  */
 @Component
 public class IncludeResolver {
@@ -39,94 +39,90 @@ public class IncludeResolver {
     // Same delimiters as in AsciidocConverter: listing, literal and Markdown fences
     private static final Pattern CODE_DELIMITER = Pattern.compile("-{4,}|\\.{4,}|```.*");
 
-    private final AtomicInteger resolved = new AtomicInteger();
-    private final AtomicInteger missing = new AtomicInteger();
-    private final AtomicInteger skipped = new AtomicInteger();
+    /** Text with every include replaced, and the counts of this call only. */
+    public record Result(String text, IncludeStats stats) {
+    }
 
     /**
      * @param file the file {@code text} was read from; relative targets are resolved against its folder
      * @param root the Antora module root; {@code partial$x.adoc} is resolved to {@code root/partials/x.adoc}
      */
-    public String resolve(Path file, String text, Path root) {
+    public Result resolve(Path file, String text, Path root) {
+        Walk walk = new Walk(normalize(root));
+        String resolvedText = walk.resolve(normalize(file), text, 1);
+        return new Result(resolvedText, new IncludeStats(walk.resolved, walk.missing, walk.skipped));
+    }
+
+    /** State of one {@link #resolve(Path, String, Path)} call: confined to one thread, so plain ints suffice. */
+    private static final class Walk {
+
+        private final Path root;
         // Membership checks only, the iteration order never reaches the output
-        Set<Path> openFiles = new HashSet<>();
-        return resolve(normalize(file), text, normalize(root), 1, openFiles);
-    }
+        private final Set<Path> openFiles = new HashSet<>();
+        private int resolved;
+        private int missing;
+        private int skipped;
 
-    public int resolvedCount() {
-        return resolved.get();
-    }
+        Walk(Path root) {
+            this.root = root;
+        }
 
-    public int missingCount() {
-        return missing.get();
-    }
-
-    /** Includes not inserted because of a cycle or the depth limit. */
-    public int skippedCount() {
-        return skipped.get();
-    }
-
-    public void resetCounters() {
-        resolved.set(0);
-        missing.set(0);
-        skipped.set(0);
-    }
-
-    private String resolve(Path file, String text, Path root, int depth, Set<Path> openFiles) {
-        openFiles.add(file);
-        List<String> out = new ArrayList<>();
-        String closingDelimiter = null;   // non-null while inside a code block
-        for (String line : text.replace("\r\n", "\n").split("\n", -1)) {
-            String trimmed = line.stripTrailing();
-            if (closingDelimiter != null) {
-                if (trimmed.equals(closingDelimiter)) {
-                    closingDelimiter = null;
-                }
-                out.add(line);
-            } else if (CODE_DELIMITER.matcher(trimmed).matches()) {
-                // "```java" is closed by a bare "```", the other delimiters by the same line
-                closingDelimiter = trimmed.startsWith(MARKDOWN_FENCE) ? MARKDOWN_FENCE : trimmed;
-                out.add(line);
-            } else {
-                Matcher include = INCLUDE.matcher(trimmed);
-                if (include.matches()) {
-                    String content = include(file, include.group(1).strip(), root, depth, openFiles);
-                    if (content != null) {
-                        out.add(content);
+        String resolve(Path file, String text, int depth) {
+            openFiles.add(file);
+            List<String> out = new ArrayList<>();
+            String closingDelimiter = null;   // non-null while inside a code block
+            for (String line : text.replace("\r\n", "\n").split("\n", -1)) {
+                String trimmed = line.stripTrailing();
+                if (closingDelimiter != null) {
+                    if (trimmed.equals(closingDelimiter)) {
+                        closingDelimiter = null;
                     }
-                } else {
                     out.add(line);
+                } else if (CODE_DELIMITER.matcher(trimmed).matches()) {
+                    // "```java" is closed by a bare "```", the other delimiters by the same line
+                    closingDelimiter = trimmed.startsWith(MARKDOWN_FENCE) ? MARKDOWN_FENCE : trimmed;
+                    out.add(line);
+                } else {
+                    Matcher include = INCLUDE.matcher(trimmed);
+                    if (include.matches()) {
+                        String content = include(file, include.group(1).strip(), depth);
+                        if (content != null) {
+                            out.add(content);
+                        }
+                    } else {
+                        out.add(line);
+                    }
                 }
             }
+            // Removed on the way out: the same partial may be included twice in a row, that is not a cycle
+            openFiles.remove(file);
+            return String.join("\n", out);
         }
-        // Removed on the way out: the same partial may be included twice in a row, that is not a cycle
-        openFiles.remove(file);
-        return String.join("\n", out);
-    }
 
-    /** Returns the resolved content of the target, or null when nothing is inserted. */
-    private String include(Path from, String target, Path root, int depth, Set<Path> openFiles) {
-        Path path = target.startsWith(PARTIAL_PREFIX)
-                ? root.resolve("partials").resolve(target.substring(PARTIAL_PREFIX.length())).normalize()
-                : from.getParent().resolve(target).normalize();
-        if (depth > MAX_DEPTH) {
-            skipped.incrementAndGet();
-            log.warn("Include depth limit {} reached in {}: include::{}[] skipped", MAX_DEPTH, from, target);
-            return null;
+        /** Returns the resolved content of the target, or null when nothing is inserted. */
+        private String include(Path from, String target, int depth) {
+            Path path = target.startsWith(PARTIAL_PREFIX)
+                    ? root.resolve("partials").resolve(target.substring(PARTIAL_PREFIX.length())).normalize()
+                    : from.getParent().resolve(target).normalize();
+            if (depth > MAX_DEPTH) {
+                skipped++;
+                log.warn("Include depth limit {} reached in {}: include::{}[] skipped", MAX_DEPTH, from, target);
+                return null;
+            }
+            if (openFiles.contains(path)) {
+                skipped++;
+                log.warn("Include cycle in {}: include::{}[] skipped", from, target);
+                return null;
+            }
+            // "../../.." in a target must not read files outside the docs module
+            if (!path.startsWith(root) || !Files.isRegularFile(path)) {
+                missing++;
+                log.warn("Include not found in {}: include::{}[] -> {}", from, target, path);
+                return null;
+            }
+            resolved++;
+            return resolve(path, stripFinalNewline(read(path)), depth + 1);
         }
-        if (openFiles.contains(path)) {
-            skipped.incrementAndGet();
-            log.warn("Include cycle in {}: include::{}[] skipped", from, target);
-            return null;
-        }
-        // "../../.." in a target must not read files outside the docs module
-        if (!path.startsWith(root) || !Files.isRegularFile(path)) {
-            missing.incrementAndGet();
-            log.warn("Include not found in {}: include::{}[] -> {}", from, target, path);
-            return null;
-        }
-        resolved.incrementAndGet();
-        return resolve(path, stripFinalNewline(read(path)), root, depth + 1, openFiles);
     }
 
     private static String read(Path file) {

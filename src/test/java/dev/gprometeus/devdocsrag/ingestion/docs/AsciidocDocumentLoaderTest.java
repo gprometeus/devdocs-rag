@@ -17,8 +17,6 @@ class AsciidocDocumentLoaderTest {
     @TempDir
     Path root;
 
-    private final IncludeResolver includeResolver = new IncludeResolver();
-
     @Test
     void loadsPagesInSourceIdOrderWithIncludesResolved() throws IOException {
         write("pages/nav.adoc", "* xref:index.adoc[Home]");
@@ -31,7 +29,8 @@ class AsciidocDocumentLoaderTest {
                 include::partial$ollama/setup.adoc[]""");
         write("partials/ollama/setup.adoc", "Run `ollama serve` first.");
 
-        List<SourceDocument> documents = loader().load();
+        DocsLoadResult result = loader().load();
+        List<SourceDocument> documents = result.documents();
 
         assertThat(documents).extracting(SourceDocument::sourceId)
                 .containsExactly("api/chat/ollama-chat.adoc", "index.adoc");
@@ -45,7 +44,7 @@ class AsciidocDocumentLoaderTest {
                 # Ollama Chat
                 ## Setup
                 Run `ollama serve` first.""");
-        assertThat(includeResolver.resolvedCount()).isEqualTo(1);
+        assertThat(result.includes()).isEqualTo(new IncludeStats(1, 0, 0));
 
         // Curly braces are prompt template placeholders, not attributes
         assertThat(documents.get(1).text()).contains("{project-name}");
@@ -60,7 +59,7 @@ class AsciidocDocumentLoaderTest {
                 # install the model
                 ----""");
 
-        assertThat(loader().load()).singleElement()
+        assertThat(loader().load().documents()).singleElement()
                 .extracting(SourceDocument::title).isEqualTo("no-title");
     }
 
@@ -72,12 +71,26 @@ class AsciidocDocumentLoaderTest {
         write("pages/blank.adoc", ":toc:");
         write("pages/real.adoc", "= Real\nContent.");
 
-        assertThat(loader().load()).extracting(SourceDocument::sourceId).containsExactly("real.adoc");
+        DocsLoadResult result = loader().load();
+
+        assertThat(result.documents()).extracting(SourceDocument::sourceId).containsExactly("real.adoc");
+        // The include that emptied the skipped page still shows up in the statistics
+        assertThat(result.includes()).isEqualTo(new IncludeStats(0, 1, 0));
+    }
+
+    @Test
+    void repeatedLoadsDoNotAccumulateIncludeStats() throws IOException {
+        write("pages/page.adoc", "= Page\ninclude::partial$missing.adoc[]\nText.");
+        AsciidocDocumentLoader loader = loader();
+
+        loader.load();
+
+        assertThat(loader.load().includes()).isEqualTo(new IncludeStats(0, 1, 0));
     }
 
     private AsciidocDocumentLoader loader() {
         DocsProperties props = new DocsProperties(root, "https://docs.example/reference/", "v2.0.1");
-        return new AsciidocDocumentLoader(props, includeResolver, new AsciidocConverter());
+        return new AsciidocDocumentLoader(props, new IncludeResolver(), new AsciidocConverter());
     }
 
     private void write(String relative, String content) throws IOException {

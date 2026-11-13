@@ -77,21 +77,19 @@ public class DocsPreviewRunner implements CommandLineRunner {
                     .thenComparing(SourceDocument::sourceId);
 
     private final AsciidocDocumentLoader loader;
-    private final IncludeResolver includeResolver;
     private final ConfigurableApplicationContext context;
 
-    public DocsPreviewRunner(AsciidocDocumentLoader loader, IncludeResolver includeResolver,
-                             ConfigurableApplicationContext context) {
+    public DocsPreviewRunner(AsciidocDocumentLoader loader, ConfigurableApplicationContext context) {
         this.loader = loader;
-        this.includeResolver = includeResolver;
         this.context = context;
     }
 
     @Override
     public void run(String... args) throws IOException {
-        List<SourceDocument> documents = loader.load();
+        DocsLoadResult result = loader.load();
+        List<SourceDocument> documents = result.documents();
         writePreview(documents);
-        logStatistics(documents);
+        logStatistics(documents, result.includes());
         // One-shot profile: shut down instead of keeping the context alive.
         // On failure Spring Boot closes the context and exits with a non-zero code.
         System.exit(SpringApplication.exit(context));
@@ -116,9 +114,9 @@ public class DocsPreviewRunner implements CommandLineRunner {
         log.info("Preview of {} documents written to {}", preview.size(), PREVIEW_FILE.toAbsolutePath());
     }
 
-    private void logStatistics(List<SourceDocument> documents) {
+    private void logStatistics(List<SourceDocument> documents, IncludeStats includes) {
         log.info("Includes resolved: {}, missing: {}, skipped (cycle or depth): {}",
-                includeResolver.resolvedCount(), includeResolver.missingCount(), includeResolver.skippedCount());
+                includes.resolved(), includes.missing(), includes.skipped());
         if (documents.isEmpty()) {
             log.warn("No documents loaded, nothing to analyze");
             return;
