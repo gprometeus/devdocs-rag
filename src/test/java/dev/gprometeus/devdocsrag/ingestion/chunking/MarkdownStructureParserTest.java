@@ -127,7 +127,18 @@ class MarkdownStructureParserTest {
     void unclosedFenceRunsToEnd() {
         List<Block> blocks = parser.parse("Doc", "```java\nint x;\n\n# not heading").getFirst().blocks();
 
-        assertThat(blocks).singleElement().extracting(Block::type).isEqualTo(CODE);
+        assertThat(blocks).singleElement().satisfies(block -> {
+            assertThat(block.type()).isEqualTo(CODE);
+            // Closed with a fence as long as the opening one, so the block stays complete inside a chunk
+            assertThat(block.text()).isEqualTo("```java\nint x;\n\n# not heading\n```");
+        });
+    }
+
+    @Test
+    void unclosedLongerIndentedFenceIsClosedWithSameRun() {
+        Block block = parser.parse("Doc", "   ````yaml\nkey: v").getFirst().blocks().getFirst();
+
+        assertThat(block.text()).isEqualTo("   ````yaml\nkey: v\n````");
     }
 
     @Test

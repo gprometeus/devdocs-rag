@@ -79,6 +79,17 @@ public class MarkdownStructureParser {
     record Heading(int level, String text) {
     }
 
+    /** "   ````java title=x" -> "````": the fence characters only, as long as the opening run, without indentation. */
+    static String fenceRun(String openingLine) {
+        String stripped = openingLine.stripLeading();
+        char fenceChar = stripped.charAt(0);
+        int end = 0;
+        while (end < stripped.length() && stripped.charAt(end) == fenceChar) {
+            end++;
+        }
+        return stripped.substring(0, end);
+    }
+
     /**
      * True if {@code h1} says nothing beyond {@code title}: equal to it, or "&lt;prefix&gt;: &lt;title&gt;".
      * Compared case-insensitively with whitespace collapsed. A blank title is always replaced: the h1 is better than nothing.
@@ -149,7 +160,13 @@ public class MarkdownStructureParser {
         }
 
         List<Section> finish() {
-            flush();   // an unclosed fenced block runs to the end of the text, as in MarkdownFences
+            // An unclosed fenced block runs to the end of the text, as in MarkdownFences. It gets a closing fence,
+            // so every CODE/TABLE block is a complete fenced block: a chunk quoted as Markdown in an answer
+            // must not turn everything after it into code
+            if (fenceInfo != null && !pending.isEmpty()) {
+                pending.add(fenceRun(pending.getFirst()));
+            }
+            flush();
             closeSection();
             return sections;
         }
